@@ -12,10 +12,14 @@ import (
 	"fullcycle-auction_go/internal/usecase/auction_usecase"
 	"fullcycle-auction_go/internal/usecase/bid_usecase"
 	"fullcycle-auction_go/internal/usecase/user_usecase"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
-	"log"
 )
 
 func main() {
@@ -34,7 +38,18 @@ func main() {
 
 	router := gin.Default()
 
-	userController, bidController, auctionsController := initDependencies(databaseConnection)
+	userController, bidController, auctionsController, auctionRepository := initDependencies(databaseConnection)
+
+	// Configura signal handler para parar o monitor de leilões
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		log.Println("Shutting down auction monitor...")
+		auctionRepository.StopAuctionMonitor()
+		os.Exit(0)
+	}()
 
 	router.GET("/auction", auctionsController.FindAuctions)
 	router.GET("/auction/:auctionId", auctionsController.FindAuctionById)
@@ -50,9 +65,10 @@ func main() {
 func initDependencies(database *mongo.Database) (
 	userController *user_controller.UserController,
 	bidController *bid_controller.BidController,
-	auctionController *auction_controller.AuctionController) {
+	auctionController *auction_controller.AuctionController,
+	auctionRepository *auction.AuctionRepository) {
 
-	auctionRepository := auction.NewAuctionRepository(database)
+	auctionRepository = auction.NewAuctionRepository(database)
 	bidRepository := bid.NewBidRepository(database, auctionRepository)
 	userRepository := user.NewUserRepository(database)
 
